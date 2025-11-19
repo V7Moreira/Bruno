@@ -5,6 +5,7 @@
    - Cadastro de Produtos
    - Cadastro de Vendedores
    - Saída de Mercadoria (Baixa no Estoque com Vendedor e Data)
+   - Exportar relatório .TXT (Estoque e Vendedores)
 =================================================================================== */
 
 #include <stdio.h>
@@ -18,12 +19,12 @@ typedef struct {
     char nome[50];
     int quantidade;
     float preco;
-    char status; // ' ' = ativo
+    char status;
 } Produto;
 
 typedef struct {
     char nome[50];
-    char status; // ' ' = ativo
+    char status;
 } Vendedor;
 
 /* --- PROTÓTIPOS --- */
@@ -35,6 +36,8 @@ void cadastrarVendedor(FILE *arq);
 void realizarVenda(FILE *arqProd, FILE *arqVend);
 void consultarEstoque(FILE *arq);
 void listarVendedores(FILE *arq);
+void gerarRelatorioEstoque(FILE *arq);
+void gerarRelatorioVendedores(FILE *arq);
 
 /* ============================================================================== */
 void limpa_buffer(void) {
@@ -49,7 +52,6 @@ void lerString(char *s, int tam) {
 }
 
 /* ============================================================================== */
-// Função para calcular tamanho baseada no tipo da struct
 int tamanho(FILE *arq, size_t tam_registro) {
     long pos = ftell(arq);
     fseek(arq, 0, SEEK_END);
@@ -123,7 +125,6 @@ void realizarVenda(FILE *arqProd, FILE *arqVend) {
 
     printf("\n=== REGISTRAR SAÍDA / VENDA ===\n");
 
-    // 1. Identificar o Vendedor
     printf("Código do Vendedor: ");
     scanf("%d", &codVend);
     limpa_buffer();
@@ -135,7 +136,6 @@ void realizarVenda(FILE *arqProd, FILE *arqVend) {
         return;
     }
 
-    // 2. Identificar o Produto
     printf("Código do Produto: ");
     scanf("%d", &codProd);
     limpa_buffer();
@@ -147,11 +147,9 @@ void realizarVenda(FILE *arqProd, FILE *arqVend) {
         return;
     }
 
-    // 3. Mostrar dados atuais
     printf("\nProduto: %s | Estoque Atual: %d\n", p.nome, p.quantidade);
     printf("Vendedor: %s\n", v.nome);
 
-    // 4. Dados da Venda
     printf("Quantidade vendida: ");
     scanf("%d", &qtdVenda);
     limpa_buffer();
@@ -164,18 +162,16 @@ void realizarVenda(FILE *arqProd, FILE *arqVend) {
     printf("Data da venda (dd/mm/aa): ");
     lerString(data, sizeof(data));
 
-    // 5. Atualizar Estoque
     char conf;
-    printf("Confirmar saída de %d un. de '%s' por %s? (s/n): ", qtdVenda, p.nome, v.nome);
+    printf("Confirmar saída de %d un. de '%s' por %s? (s/n): ",
+           qtdVenda, p.nome, v.nome);
     scanf("%c", &conf);
     limpa_buffer();
 
     if (toupper(conf) == 'S') {
-        p.quantidade -= qtdVenda; // Abate do estoque
+        p.quantidade -= qtdVenda;
 
-        // Volta o ponteiro do arquivo para o início do registro desse produto
         fseek(arqProd, posProd, SEEK_SET);
-        // Sobrescreve o registro com a nova quantidade
         fwrite(&p, sizeof(Produto), 1, arqProd);
         fflush(arqProd);
 
@@ -198,7 +194,8 @@ void consultarEstoque(FILE *arq) {
     for (i = 0; i < total; i++) {
         fseek(arq, i * sizeof(Produto), SEEK_SET);
         fread(&p, sizeof(Produto), 1, arq);
-        printf("%03d | %-20s | %03d   | R$ %.2f\n", i + 1, p.nome, p.quantidade, p.preco);
+        printf("%03d | %-20s | %03d   | R$ %.2f\n",
+               i + 1, p.nome, p.quantidade, p.preco);
     }
 }
 
@@ -216,33 +213,83 @@ void listarVendedores(FILE *arq) {
 }
 
 /* ============================================================================== */
+void gerarRelatorioEstoque(FILE *arq) {
+    Produto p;
+    FILE *out = fopen("estoque.txt", "w");
+    if (!out) {
+        printf("Erro ao criar arquivo de estoque.txt\n");
+        return;
+    }
+
+    int i, total = tamanho(arq, sizeof(Produto));
+
+    fprintf(out, "=== RELATÓRIO DE ESTOQUE ===\n");
+    fprintf(out, "COD | %-20s | %-5s | %-10s\n", "PRODUTO", "QTD", "PREÇO");
+    fprintf(out, "------------------------------------------------\n");
+
+    for (i = 0; i < total; i++) {
+        fseek(arq, i * sizeof(Produto), SEEK_SET);
+        fread(&p, sizeof(Produto), 1, arq);
+        fprintf(out, "%03d | %-20s | %03d   | R$ %.2f\n",
+                i + 1, p.nome, p.quantidade, p.preco);
+    }
+
+    fclose(out);
+    printf("Relatório de estoque gerado em estoque.txt\n");
+}
+
+/* ============================================================================== */
+void gerarRelatorioVendedores(FILE *arq) {
+    Vendedor v;
+    FILE *out = fopen("vendedores.txt", "w");
+    if (!out) {
+        printf("Erro ao criar arquivo vendedores.txt\n");
+        return;
+    }
+
+    int i, total = tamanho(arq, sizeof(Vendedor));
+
+    fprintf(out, "=== LISTA DE VENDEDORES ===\n");
+    for (i = 0; i < total; i++) {
+        fseek(arq, i * sizeof(Vendedor), SEEK_SET);
+        fread(&v, sizeof(Vendedor), 1, arq);
+        fprintf(out, "#%d - %s\n", i + 1, v.nome);
+    }
+
+    fclose(out);
+    printf("Relatório de vendedores gerado em vendedores.txt\n");
+}
+
+/* ============================================================================== */
 int main(void) {
-    // Arquivo de Produtos
+
     FILE *arqProd = fopen("estoque.dat", "r+b");
     if (!arqProd) arqProd = fopen("estoque.dat", "w+b");
 
-    // Arquivo de Vendedores
     FILE *arqVend = fopen("vendedores.dat", "r+b");
     if (!arqVend) arqVend = fopen("vendedores.dat", "w+b");
 
     if (!arqProd || !arqVend) {
-        printf("Erro crítico ao abrir banco de dados.\n");
+        printf("Erro ao abrir banco de dados.\n");
         return 1;
     }
 
     int op;
     do {
         printf("\n========== SISTEMA DE LOJA ==========\n");
-        printf("1. Cadastrar Produto (Chegada de item)\n");
+        printf("1. Cadastrar Produto\n");
         printf("2. Cadastrar Vendedor\n");
-        printf("3. REALIZAR VENDA (Saída de Estoque)\n");
-        printf("4. Consultar Estoque Geral\n");
+        printf("3. Realizar Venda\n");
+        printf("4. Consultar Estoque\n");
         printf("5. Listar Vendedores\n");
-        printf("6. Sair\n");
+        printf("6. Gerar Relatório de Estoque (TXT)\n");
+        printf("7. Gerar Relatório de Vendedores (TXT)\n");
+        printf("8. Sair\n");
         printf("Opção: ");
 
         if (scanf("%d", &op) != 1) {
-            limpa_buffer(); continue;
+            limpa_buffer();
+            continue;
         }
         limpa_buffer();
 
@@ -252,11 +299,13 @@ int main(void) {
             case 3: realizarVenda(arqProd, arqVend); break;
             case 4: consultarEstoque(arqProd); break;
             case 5: listarVendedores(arqVend); break;
-            case 6: printf("Fechando caixa...\n"); break;
+            case 6: gerarRelatorioEstoque(arqProd); break;
+            case 7: gerarRelatorioVendedores(arqVend); break;
+            case 8: printf("Finalizando...\n"); break;
             default: printf("Opção inválida!\n");
         }
 
-    } while (op != 6);
+    } while (op != 8);
 
     fclose(arqProd);
     fclose(arqVend);
